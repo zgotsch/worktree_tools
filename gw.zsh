@@ -17,6 +17,7 @@ Commands:
     gw <branch>         Switch to worktree for <branch>, create if doesn't exist
     gw -b <branch>      Create new branch and worktree
     gw -d [branch]      Delete worktree (exact match required)
+    gw -c               Clean up worktrees that are up to date with tracking branches
     gw --list          List all worktrees
     gw --help          Show this help
 
@@ -26,6 +27,7 @@ Examples:
     gw -b zgotsch/experimental        # Create new branch and zgotsch__experimental/ worktree
     gw -d feature/old-api            # Delete feature__old-api/ worktree
     gw -d                            # Delete current worktree (switches to main first)
+    gw -c                            # Clean up finished feature branches
 
 Directory Structure:
     Branch names with '/' are converted to '__' in directory names:
@@ -226,12 +228,14 @@ list_worktrees() {
     fi
     
     # Print other worktrees
-    for entry in "${worktree_data[@]}"; do
-        local branch_name="${entry%|*}"
-        local relative_path="${entry#*|}"
-        printf "  ${branch_color}%-30s${reset_color} ${path_color}%s${reset_color}\n" \
-            "$branch_name" "$relative_path"
-    done
+    if [[ ${#worktree_data[@]} -gt 0 ]]; then
+        for entry in "${worktree_data[@]}"; do
+            local branch_name="${entry%|*}"
+            local relative_path="${entry#*|}"
+            printf "  ${branch_color}%-30s${reset_color} ${path_color}%s${reset_color}\n" \
+                "$branch_name" "$relative_path"
+        done
+    fi
 }
 
 # Get list of existing worktree branch names (sorted by most recent first)
@@ -486,6 +490,109 @@ create_config_links() {
     done
 }
 
+# Clean up worktrees that are up to date with their tracking branches
+clean_worktrees() {
+    # Need to be in a git repo
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        echo "Error: Not in a git repository. Cannot clean worktrees." >&2
+        return 1
+    fi
+    
+    local worktree_root
+    worktree_root=$(find_worktree_root)
+    
+    local current_worktree
+    current_worktree=$(get_current_worktree)
+    
+    echo "Fetching latest from remotes..." >&2
+    git fetch >&2
+    
+    echo "Checking worktrees for cleanup..." >&2
+    
+    local -a worktrees_to_delete=()
+    local current_will_be_deleted=false
+    
+    # Iterate through all worktrees except main
+    while IFS= read -r line; do
+        local path commit branch
+        read -r path commit branch <<< "$line"
+        
+        # Remove brackets around branch name
+        branch=${branch#[}
+        branch=${branch%]}
+        
+        local dir_name
+        dir_name=$(basename "$path")
+        local branch_name
+        branch_name=$(dir_to_branch "$dir_name")
+        
+        # Skip main worktree
+        if [[ "$branch_name" == "main" ]]; then
+            continue
+        fi
+        
+        # Skip if branch is empty (detached HEAD)
+        if [[ -z "$branch" || "$branch" == *"detached"* ]]; then
+            echo "  Skipping $branch_name (detached HEAD)" >&2
+            continue
+        fi
+        
+        # Change to the worktree directory to check its status
+        cd "$path" || continue
+        
+        # Get the tracking branch
+        local upstream
+        upstream=$(git rev-parse --abbrev-ref HEAD@{upstream} 2>/dev/null)
+        
+        if [[ -z "$upstream" ]]; then
+            echo "  Skipping $branch_name (no tracking branch)" >&2
+            continue
+        fi
+        
+        # Check if branch is up to date with its tracking branch
+        local behind ahead
+        behind=$(git rev-list --count HEAD.."$upstream" 2>/dev/null)
+        ahead=$(git rev-list --count "$upstream"..HEAD 2>/dev/null)
+        
+        if [[ "$behind" -eq 0 && "$ahead" -eq 0 ]]; then
+            echo "  Marking $branch_name for deletion (up to date with $upstream)" >&2
+            worktrees_to_delete+=("$path")
+            
+            # Check if this is the current worktree
+            if [[ "$path" == "$current_worktree" ]]; then
+                current_will_be_deleted=true
+            fi
+        else
+            echo "  Keeping $branch_name ($ahead ahead, $behind behind $upstream)" >&2
+        fi
+    done < <(git worktree list)
+    
+    # If no worktrees to delete, we're done
+    if [[ ${#worktrees_to_delete[@]} -eq 0 ]]; then
+        echo "No worktrees need cleaning." >&2
+        return 0
+    fi
+    
+    # If current worktree will be deleted, we need to cd to main first
+    if [[ "$current_will_be_deleted" == "true" ]]; then
+        local main_worktree="$worktree_root/main"
+        if [[ ! -d "$main_worktree" ]]; then
+            echo "Error: Main worktree not found at $main_worktree" >&2
+            return 1
+        fi
+        
+        # Output main worktree path for shell function to cd to
+        echo "$main_worktree"
+    fi
+    
+    # Output the worktrees to delete for the shell function
+    local worktrees_string
+    worktrees_string=$(IFS=':'; echo "${worktrees_to_delete[*]}")
+    echo "CLEAN_WORKTREES:$worktrees_string"
+    
+    return 0
+}
+
 # Delete a worktree
 delete_worktree() {
     local branch_name="$1"
@@ -583,6 +690,9 @@ main() {
             ;;
         -d)
             delete_worktree "${2:-}"
+            ;;
+        -c)
+            clean_worktrees
             ;;
         "")
             list_worktrees

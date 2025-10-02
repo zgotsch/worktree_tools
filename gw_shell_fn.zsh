@@ -33,6 +33,52 @@ gw() {
                     echo "Error: Failed to delete worktree" >&2
                 fi
             fi
+        elif [[ "$result" == *"CLEAN_WORKTREES:"* ]]; then
+            # Handle clean worktrees command
+            local main_worktree=""
+            local worktrees_to_delete=""
+            
+            # Check if we need to cd to main first (multi-line output)
+            if [[ $(echo "$result" | wc -l) -gt 1 ]]; then
+                main_worktree=$(echo "$result" | head -n1)
+                worktrees_to_delete=$(echo "$result" | grep "CLEAN_WORKTREES:" | cut -d: -f2-)
+                
+                if [[ -d "$main_worktree" ]]; then
+                    echo "Switching to: $main_worktree" >&2
+                    cd "$main_worktree"
+                fi
+            else
+                # Single line output, just get the worktrees to delete
+                worktrees_to_delete=$(echo "$result" | cut -d: -f2-)
+            fi
+            
+            # Delete the worktrees
+            if [[ -n "$worktrees_to_delete" ]]; then
+                local deleted_count=0
+                local failed_count=0
+                
+                # Split the worktrees string by ':'
+                local -a WORKTREES
+                WORKTREES=(${(s.:.)worktrees_to_delete})
+                for worktree_path in "${WORKTREES[@]}"; do
+                    if [[ -n "$worktree_path" ]]; then
+                        local branch_name
+                        branch_name=$(basename "$worktree_path" | sed 's|__|/|g')
+                        echo "Deleting worktree: $branch_name" >&2
+                        
+                        if git worktree remove "$worktree_path" 2>/dev/null; then
+                            ((deleted_count++))
+                        else
+                            echo "Warning: Failed to delete $branch_name (may have untracked files)" >&2
+                            ((failed_count++))
+                        fi
+                    fi
+                done
+                
+                echo "Clean complete: $deleted_count deleted, $failed_count failed" >&2
+            else
+                echo "No worktrees to clean" >&2
+            fi
         elif [[ -d "$result" ]]; then
             # Normal directory switching
             echo "Switching to: $result" >&2
