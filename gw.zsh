@@ -36,13 +36,15 @@ Directory Structure:
     - user/branch        →  user__branch/
 
 Configuration:
-    Create a .gwconfig file in the main worktree to automatically symlink files:
-    
+    Create a .gwconfig file in the main worktree to automatically symlink files
+    and run setup scripts:
+
     link_files: [".env.local", ".env.production.local", "config/local.yaml"]
-    
+    scripts: ["npm install", "make setup"]
+
     or JSON format:
-    
-    {"link_files": [".env.local", ".env.production.local", "config/local.yaml"]}
+
+    {"link_files": [".env.local", ".env.production.local", "config/local.yaml"], "scripts": ["npm install", "make setup"]}
 EOF
 }
 
@@ -336,10 +338,13 @@ switch_or_create_worktree() {
         
         echo "Creating new branch '$input' and worktree at $worktree_path" >&2
         git worktree add -b "$input" "$worktree_path" >&2
-        
+
         # Create symlinks for configured files
         create_config_links "$worktree_path" "$worktree_root"
-        
+
+        # Run configured scripts
+        run_config_scripts "$worktree_path" "$worktree_root"
+
         echo "$worktree_path"
         return 0
     fi
@@ -382,10 +387,13 @@ switch_or_create_worktree() {
                 echo "Error: Branch '$match_value' not found" >&2
                 return 1
             fi
-            
+
             # Create symlinks for configured files
             create_config_links "$worktree_path" "$worktree_root"
-            
+
+            # Run configured scripts
+            run_config_scripts "$worktree_path" "$worktree_root"
+
             echo "$worktree_path"
             return 0
             ;;
@@ -411,16 +419,16 @@ switch_or_create_worktree() {
 get_link_files() {
     local worktree_root="$1"
     local config_file="$worktree_root/main/.gwconfig"
-    
+
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
         return 0  # No config file, no files to link
     fi
-    
+
     # Parse the simple YAML/JSON format to extract link_files
     # Expected format: link_files: [".env.local", ".env.production.local"]
     # or JSON format: {"link_files": [".env.local", ".env.production.local"]}
-    
+
     local files
     if grep -q "link_files:" "$config_file"; then
         # YAML format
@@ -429,7 +437,7 @@ get_link_files() {
         # JSON format
         files=$(grep '"link_files"' "$config_file" | sed 's/.*"link_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
     fi
-    
+
     # Output each file on a separate line, removing any quotes and whitespace
     if [[ -n "$files" ]]; then
         echo "$files" | while read -r file; do
@@ -440,11 +448,44 @@ get_link_files() {
     fi
 }
 
+# Read .gwconfig file and extract scripts
+get_scripts() {
+    local worktree_root="$1"
+    local config_file="$worktree_root/main/.gwconfig"
+
+    # Check if config file exists
+    if [[ ! -f "$config_file" ]]; then
+        return 0  # No config file, no scripts to run
+    fi
+
+    # Parse the simple YAML/JSON format to extract scripts
+    # Expected format: scripts: ["npm install", "make setup"]
+    # or JSON format: {"scripts": ["npm install", "make setup"]}
+
+    local scripts
+    if grep -q "scripts:" "$config_file"; then
+        # YAML format
+        scripts=$(grep "scripts:" "$config_file" | sed 's/.*scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+    elif grep -q '"scripts"' "$config_file"; then
+        # JSON format
+        scripts=$(grep '"scripts"' "$config_file" | sed 's/.*"scripts": *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+    fi
+
+    # Output each script on a separate line, removing any quotes and whitespace
+    if [[ -n "$scripts" ]]; then
+        echo "$scripts" | while read -r script; do
+            if [[ -n "$script" ]]; then
+                echo "$script"
+            fi
+        done
+    fi
+}
+
 # Create symlinks for configured files in a new worktree
 create_config_links() {
     local worktree_path="$1"
     local worktree_root="$2"
-    
+
     # Get files to link from config
     local -a link_files=()
     while IFS= read -r file; do
@@ -452,19 +493,19 @@ create_config_links() {
             link_files+=("$file")
         fi
     done < <(get_link_files "$worktree_root")
-    
+
     # If no files to link, return
     if [[ ${#link_files[@]} -eq 0 ]]; then
         return 0
     fi
-    
+
     echo "Creating symlinks for configured files..." >&2
-    
+
     # Create symlinks for each configured file
     for file in "${link_files[@]}"; do
         local source_file="$worktree_root/main/$file"
         local target_file="$worktree_path/$file"
-        
+
         # Check if source file exists in main worktree
         if [[ -f "$source_file" || -d "$source_file" ]]; then
             # Create directory structure if needed
@@ -473,11 +514,11 @@ create_config_links() {
             if [[ "$target_dir" != "." && ! -d "$target_dir" ]]; then
                 mkdir -p "$target_dir"
             fi
-            
+
             # Create relative symlink from target directory to source file
             # Since worktrees are siblings, the path is usually ../main/filename
             local relative_source="../main/$file"
-            
+
             # Create the symlink
             if ln -sf "$relative_source" "$target_file" 2>/dev/null; then
                 echo "  Linked: $file" >&2
@@ -486,6 +527,38 @@ create_config_links() {
             fi
         else
             echo "  Warning: Source file $file not found in main worktree" >&2
+        fi
+    done
+}
+
+# Run configured scripts in a new worktree
+run_config_scripts() {
+    local worktree_path="$1"
+    local worktree_root="$2"
+
+    # Get scripts to run from config
+    local -a scripts=()
+    while IFS= read -r script; do
+        if [[ -n "$script" ]]; then
+            scripts+=("$script")
+        fi
+    done < <(get_scripts "$worktree_root")
+
+    # If no scripts to run, return
+    if [[ ${#scripts[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    echo "Running configured scripts..." >&2
+
+    # Run each script in the worktree directory
+    for script in "${scripts[@]}"; do
+        echo "  Running: $script" >&2
+        (cd "$worktree_path" && eval "$script" >&2)
+        if [[ $? -eq 0 ]]; then
+            echo "  ✓ Completed: $script" >&2
+        else
+            echo "  ✗ Failed: $script" >&2
         fi
     done
 }
