@@ -36,15 +36,19 @@ Directory Structure:
     - user/branch        →  user__branch/
 
 Configuration:
-    Create a .gwconfig file in the main worktree to automatically symlink files
+    Create a .gwconfig file in the main worktree to automatically symlink/copy files
     and run setup scripts:
 
-    link_files: [".env.local", ".env.production.local", "config/local.yaml"]
+    link_files: [".env.local", "config/local.yaml"]
+    copy_files: [".env.production.local", "secrets.json"]
     scripts: ["npm install", "make setup"]
 
     or JSON format:
 
-    {"link_files": [".env.local", ".env.production.local", "config/local.yaml"], "scripts": ["npm install", "make setup"]}
+    {"link_files": [".env.local"], "copy_files": [".env.production.local"], "scripts": ["npm install", "make setup"]}
+
+    - link_files: creates symlinks (changes sync between worktrees)
+    - copy_files: creates independent copies (changes don't sync)
 EOF
 }
 
@@ -342,6 +346,9 @@ switch_or_create_worktree() {
         # Create symlinks for configured files
         create_config_links "$worktree_path" "$worktree_root"
 
+        # Copy configured files
+        create_config_copies "$worktree_path" "$worktree_root"
+
         # Run configured scripts
         run_config_scripts "$worktree_path" "$worktree_root"
 
@@ -391,6 +398,9 @@ switch_or_create_worktree() {
             # Create symlinks for configured files
             create_config_links "$worktree_path" "$worktree_root"
 
+            # Copy configured files
+            create_config_copies "$worktree_path" "$worktree_root"
+
             # Run configured scripts
             run_config_scripts "$worktree_path" "$worktree_root"
 
@@ -436,6 +446,39 @@ get_link_files() {
     elif grep -q '"link_files"' "$config_file"; then
         # JSON format
         files=$(grep '"link_files"' "$config_file" | sed 's/.*"link_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+    fi
+
+    # Output each file on a separate line, removing any quotes and whitespace
+    if [[ -n "$files" ]]; then
+        echo "$files" | while read -r file; do
+            if [[ -n "$file" ]]; then
+                echo "$file"
+            fi
+        done
+    fi
+}
+
+# Read .gwconfig file and extract copy_files
+get_copy_files() {
+    local worktree_root="$1"
+    local config_file="$worktree_root/main/.gwconfig"
+
+    # Check if config file exists
+    if [[ ! -f "$config_file" ]]; then
+        return 0  # No config file, no files to copy
+    fi
+
+    # Parse the simple YAML/JSON format to extract copy_files
+    # Expected format: copy_files: [".env.local", ".env.production.local"]
+    # or JSON format: {"copy_files": [".env.local", ".env.production.local"]}
+
+    local files
+    if grep -q "copy_files:" "$config_file"; then
+        # YAML format
+        files=$(grep "copy_files:" "$config_file" | sed 's/.*copy_files: *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+    elif grep -q '"copy_files"' "$config_file"; then
+        # JSON format
+        files=$(grep '"copy_files"' "$config_file" | sed 's/.*"copy_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
     fi
 
     # Output each file on a separate line, removing any quotes and whitespace
@@ -557,6 +600,52 @@ create_config_links() {
                 echo "  Linked: $file" >&2
             else
                 echo "  Warning: Failed to link $file" >&2
+            fi
+        else
+            echo "  Warning: Source file $file not found in main worktree" >&2
+        fi
+    done
+}
+
+# Copy configured files to a new worktree
+create_config_copies() {
+    local worktree_path="$1"
+    local worktree_root="$2"
+
+    # Get files to copy from config
+    local -a copy_files=()
+    while IFS= read -r file; do
+        if [[ -n "$file" ]]; then
+            copy_files+=("$file")
+        fi
+    done < <(get_copy_files "$worktree_root")
+
+    # If no files to copy, return
+    if [[ ${#copy_files[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    echo "Copying configured files..." >&2
+
+    # Copy each configured file
+    for file in "${copy_files[@]}"; do
+        local source_file="$worktree_root/main/$file"
+        local target_file="$worktree_path/$file"
+
+        # Check if source file exists in main worktree
+        if [[ -f "$source_file" || -d "$source_file" ]]; then
+            # Create directory structure if needed
+            local target_dir
+            target_dir=$(dirname "$target_file")
+            if [[ "$target_dir" != "." && ! -d "$target_dir" ]]; then
+                mkdir -p "$target_dir"
+            fi
+
+            # Copy the file or directory
+            if cp -R "$source_file" "$target_file" 2>/dev/null; then
+                echo "  Copied: $file" >&2
+            else
+                echo "  Warning: Failed to copy $file" >&2
             fi
         else
             echo "  Warning: Source file $file not found in main worktree" >&2
