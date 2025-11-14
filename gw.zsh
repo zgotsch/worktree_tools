@@ -440,12 +440,12 @@ get_link_files() {
     # or JSON format: {"link_files": [".env.local", ".env.production.local"]}
 
     local files
-    if grep -q "link_files:" "$config_file"; then
+    if grep -q "^link_files:" "$config_file"; then
         # YAML format
-        files=$(grep "link_files:" "$config_file" | sed 's/.*link_files: *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
-    elif grep -q '"link_files"' "$config_file"; then
+        files=$(grep "^link_files:" "$config_file" | sed 's/.*link_files: *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+    elif grep -q "^[[:space:]]*\"link_files\"" "$config_file"; then
         # JSON format
-        files=$(grep '"link_files"' "$config_file" | sed 's/.*"link_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+        files=$(grep "^[[:space:]]*\"link_files\"" "$config_file" | sed 's/.*"link_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
     fi
 
     # Output each file on a separate line, removing any quotes and whitespace
@@ -473,12 +473,12 @@ get_copy_files() {
     # or JSON format: {"copy_files": [".env.local", ".env.production.local"]}
 
     local files
-    if grep -q "copy_files:" "$config_file"; then
+    if grep -q "^copy_files:" "$config_file"; then
         # YAML format
-        files=$(grep "copy_files:" "$config_file" | sed 's/.*copy_files: *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
-    elif grep -q '"copy_files"' "$config_file"; then
+        files=$(grep "^copy_files:" "$config_file" | sed 's/.*copy_files: *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+    elif grep -q "^[[:space:]]*\"copy_files\"" "$config_file"; then
         # JSON format
-        files=$(grep '"copy_files"' "$config_file" | sed 's/.*"copy_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
+        files=$(grep "^[[:space:]]*\"copy_files\"" "$config_file" | sed 's/.*"copy_files": *\[\(.*\)\].*/\1/' | tr -d '"' | tr ',' '\n' | sed 's/^ *//;s/ *$//')
     fi
 
     # Output each file on a separate line, removing any quotes and whitespace
@@ -506,12 +506,12 @@ get_scripts() {
     # or JSON format: {"scripts": ["npm install", "make setup"]}
 
     local scripts
-    if grep -q "scripts:" "$config_file"; then
+    if grep -q "^scripts:" "$config_file"; then
         # YAML format
-        scripts=$(grep "scripts:" "$config_file" | sed 's/.*scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
-    elif grep -q '"scripts"' "$config_file"; then
+        scripts=$(grep "^scripts:" "$config_file" | sed 's/.*scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+    elif grep -q "^[[:space:]]*\"scripts\"" "$config_file"; then
         # JSON format
-        scripts=$(grep '"scripts"' "$config_file" | sed 's/.*"scripts": *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+        scripts=$(grep "^[[:space:]]*\"scripts\"" "$config_file" | sed 's/.*"scripts": *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
     fi
 
     # Output each script on a separate line, removing any quotes and whitespace
@@ -539,12 +539,12 @@ get_delete_scripts() {
     # or JSON format: {"delete_scripts": ["git stash", "cleanup.sh"]}
 
     local scripts
-    if grep -q "delete_scripts:" "$config_file"; then
+    if grep -q "^delete_scripts:" "$config_file"; then
         # YAML format
-        scripts=$(grep "delete_scripts:" "$config_file" | sed 's/.*delete_scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
-    elif grep -q '"delete_scripts"' "$config_file"; then
+        scripts=$(grep "^delete_scripts:" "$config_file" | sed 's/.*delete_scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+    elif grep -q "^[[:space:]]*\"delete_scripts\"" "$config_file"; then
         # JSON format
-        scripts=$(grep '"delete_scripts"' "$config_file" | sed 's/.*"delete_scripts": *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
+        scripts=$(grep "^[[:space:]]*\"delete_scripts\"" "$config_file" | sed 's/.*"delete_scripts": *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
     fi
 
     # Output each script on a separate line, removing any quotes and whitespace
