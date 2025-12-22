@@ -26,7 +26,7 @@ Examples:
     gw feature/new-api                # Switch to or create feature__new-api/ worktree
     gw -b zgotsch/experimental        # Create new branch and zgotsch__experimental/ worktree
     gw -d feature/old-api            # Delete feature__old-api/ worktree
-    gw -d                            # Delete current worktree (switches to main first)
+    gw -d                            # Delete current worktree (switches to primary first)
     gw -c                            # Clean up finished feature branches
 
 Directory Structure:
@@ -36,8 +36,8 @@ Directory Structure:
     - user/branch        →  user__branch/
 
 Configuration:
-    Create a .gwconfig file in the main worktree to automatically symlink/copy files
-    and run setup scripts:
+    Create a .gwconfig file in the primary worktree (auto-detected from git remote)
+    to automatically symlink/copy files and run setup scripts:
 
     link_files: [".env.local", "config/local.yaml"]
     copy_files: [".env.production.local", "secrets.json"]
@@ -50,6 +50,18 @@ Configuration:
     - link_files: creates symlinks (changes sync between worktrees)
     - copy_files: creates independent copies (changes don't sync)
 EOF
+}
+
+# Get the primary branch name from git remote HEAD
+# Falls back to "main" if detection fails
+get_primary_branch() {
+    local branch
+    branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+    if [[ -z "$branch" ]]; then
+        echo "main"
+    else
+        echo "$branch"
+    fi
 }
 
 # Convert branch name to directory name (replace / with __)
@@ -428,7 +440,9 @@ switch_or_create_worktree() {
 # Read .gwconfig file and extract link_files
 get_link_files() {
     local worktree_root="$1"
-    local config_file="$worktree_root/main/.gwconfig"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+    local config_file="$worktree_root/$primary_branch/.gwconfig"
 
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
@@ -461,7 +475,9 @@ get_link_files() {
 # Read .gwconfig file and extract copy_files
 get_copy_files() {
     local worktree_root="$1"
-    local config_file="$worktree_root/main/.gwconfig"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+    local config_file="$worktree_root/$primary_branch/.gwconfig"
 
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
@@ -494,7 +510,9 @@ get_copy_files() {
 # Read .gwconfig file and extract scripts
 get_scripts() {
     local worktree_root="$1"
-    local config_file="$worktree_root/main/.gwconfig"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+    local config_file="$worktree_root/$primary_branch/.gwconfig"
 
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
@@ -527,7 +545,9 @@ get_scripts() {
 # Get delete scripts from config
 get_delete_scripts() {
     local worktree_root="$1"
-    local config_file="$worktree_root/main/.gwconfig"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+    local config_file="$worktree_root/$primary_branch/.gwconfig"
 
     # Check if config file exists
     if [[ ! -f "$config_file" ]]; then
@@ -538,7 +558,7 @@ get_delete_scripts() {
     # Expected format: delete_scripts: ["git stash", "cleanup.sh"]
     # or JSON format: {"delete_scripts": ["git stash", "cleanup.sh"]}
 
-    local scripts
+    local scripts=""
     if grep -q "^delete_scripts:" "$config_file"; then
         # YAML format
         scripts=$(grep "^delete_scripts:" "$config_file" | sed 's/.*delete_scripts: *\[\(.*\)\].*/\1/' | tr -d '"' | sed 's/, */\n/g' | sed 's/^ *//;s/ *$//')
@@ -561,6 +581,8 @@ get_delete_scripts() {
 create_config_links() {
     local worktree_path="$1"
     local worktree_root="$2"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
 
     # Get files to link from config
     local -a link_files=()
@@ -579,10 +601,10 @@ create_config_links() {
 
     # Create symlinks for each configured file
     for file in "${link_files[@]}"; do
-        local source_file="$worktree_root/main/$file"
+        local source_file="$worktree_root/$primary_branch/$file"
         local target_file="$worktree_path/$file"
 
-        # Check if source file exists in main worktree
+        # Check if source file exists in primary worktree
         if [[ -f "$source_file" || -d "$source_file" ]]; then
             # Create directory structure if needed
             local target_dir
@@ -592,8 +614,8 @@ create_config_links() {
             fi
 
             # Create relative symlink from target directory to source file
-            # Since worktrees are siblings, the path is usually ../main/filename
-            local relative_source="../main/$file"
+            # Since worktrees are siblings, the path is usually ../$primary_branch/filename
+            local relative_source="../$primary_branch/$file"
 
             # Create the symlink
             if ln -sf "$relative_source" "$target_file" 2>/dev/null; then
@@ -602,7 +624,7 @@ create_config_links() {
                 echo "  Warning: Failed to link $file" >&2
             fi
         else
-            echo "  Warning: Source file $file not found in main worktree" >&2
+            echo "  Warning: Source file $file not found in primary worktree" >&2
         fi
     done
 }
@@ -611,6 +633,8 @@ create_config_links() {
 create_config_copies() {
     local worktree_path="$1"
     local worktree_root="$2"
+    local primary_branch
+    primary_branch=$(get_primary_branch)
 
     # Get files to copy from config
     local -a copy_files=()
@@ -629,10 +653,10 @@ create_config_copies() {
 
     # Copy each configured file
     for file in "${copy_files[@]}"; do
-        local source_file="$worktree_root/main/$file"
+        local source_file="$worktree_root/$primary_branch/$file"
         local target_file="$worktree_path/$file"
 
-        # Check if source file exists in main worktree
+        # Check if source file exists in primary worktree
         if [[ -f "$source_file" || -d "$source_file" ]]; then
             # Create directory structure if needed
             local target_dir
@@ -648,7 +672,7 @@ create_config_copies() {
                 echo "  Warning: Failed to copy $file" >&2
             fi
         else
-            echo "  Warning: Source file $file not found in main worktree" >&2
+            echo "  Warning: Source file $file not found in primary worktree" >&2
         fi
     done
 }
@@ -731,37 +755,40 @@ clean_worktrees() {
         echo "Error: Not in a git repository. Cannot clean worktrees." >&2
         return 1
     fi
-    
+
     local worktree_root
     worktree_root=$(find_worktree_root)
-    
+
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+
     local current_worktree
     current_worktree=$(get_current_worktree)
-    
+
     echo "Fetching latest from remotes..." >&2
     git fetch >&2
-    
+
     echo "Checking worktrees for cleanup..." >&2
-    
+
     local -a worktrees_to_delete=()
     local current_will_be_deleted=false
-    
-    # Iterate through all worktrees except main
+
+    # Iterate through all worktrees except primary
     while IFS= read -r line; do
         local path commit branch
         read -r path commit branch <<< "$line"
-        
+
         # Remove brackets around branch name
         branch=${branch#[}
         branch=${branch%]}
-        
+
         local dir_name
         dir_name=$(basename "$path")
         local branch_name
         branch_name=$(dir_to_branch "$dir_name")
-        
-        # Skip main worktree
-        if [[ "$branch_name" == "main" ]]; then
+
+        # Skip primary worktree
+        if [[ "$branch_name" == "$primary_branch" ]]; then
             continue
         fi
         
@@ -834,16 +861,16 @@ clean_worktrees() {
     # Update the list to only include safe worktrees
     worktrees_to_delete=("${worktrees_safe_to_delete[@]}")
 
-    # If current worktree will be deleted, we need to cd to main first
+    # If current worktree will be deleted, we need to cd to primary first
     if [[ "$current_will_be_deleted" == "true" ]]; then
-        local main_worktree="$worktree_root/main"
-        if [[ ! -d "$main_worktree" ]]; then
-            echo "Error: Main worktree not found at $main_worktree" >&2
+        local primary_worktree="$worktree_root/$primary_branch"
+        if [[ ! -d "$primary_worktree" ]]; then
+            echo "Error: Primary worktree not found at $primary_worktree" >&2
             return 1
         fi
-        
-        # Output main worktree path for shell function to cd to
-        echo "$main_worktree"
+
+        # Output primary worktree path for shell function to cd to
+        echo "$primary_worktree"
     fi
     
     # Output the worktrees to delete for the shell function
@@ -857,34 +884,37 @@ clean_worktrees() {
 # Delete a worktree
 delete_worktree() {
     local branch_name="$1"
-    
+
     # Need to be in a git repo
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
         echo "Error: Not in a git repository. Cannot delete worktree." >&2
         return 1
     fi
-    
+
     local worktree_root
     worktree_root=$(find_worktree_root)
-    
+
+    local primary_branch
+    primary_branch=$(get_primary_branch)
+
     # If no branch name provided, delete current worktree
     if [[ -z "$branch_name" ]]; then
         local current_worktree
         current_worktree=$(get_current_worktree)
-        
+
         if [[ -z "$current_worktree" ]]; then
             echo "Error: Not in a worktree." >&2
             return 1
         fi
-        
+
         # Extract branch name from current worktree path
         local current_dir
         current_dir=$(basename "$current_worktree")
         branch_name=$(dir_to_branch "$current_dir")
-        
-        # Don't allow deleting main worktree
-        if [[ "$branch_name" == "main" ]]; then
-            echo "Error: Cannot delete the main worktree." >&2
+
+        # Don't allow deleting primary worktree
+        if [[ "$branch_name" == "$primary_branch" ]]; then
+            echo "Error: Cannot delete the primary worktree." >&2
             return 1
         fi
 
@@ -894,22 +924,22 @@ delete_worktree() {
             return 1
         fi
 
-        # Switch to main worktree first
-        local main_worktree="$worktree_root/main"
-        if [[ ! -d "$main_worktree" ]]; then
-            echo "Error: Main worktree not found at $main_worktree" >&2
+        # Switch to primary worktree first
+        local primary_worktree="$worktree_root/$primary_branch"
+        if [[ ! -d "$primary_worktree" ]]; then
+            echo "Error: Primary worktree not found at $primary_worktree" >&2
             return 1
         fi
 
         # Output just what the shell function needs to parse
-        echo "$main_worktree"
+        echo "$primary_worktree"
         echo "DELETE_AFTER_CD:$current_worktree"
         return 0
     fi
-    
-    # Don't allow deleting main worktree by name
-    if [[ "$branch_name" == "main" ]]; then
-        echo "Error: Cannot delete the main worktree." >&2
+
+    # Don't allow deleting primary worktree by name
+    if [[ "$branch_name" == "$primary_branch" ]]; then
+        echo "Error: Cannot delete the primary worktree." >&2
         return 1
     fi
     
