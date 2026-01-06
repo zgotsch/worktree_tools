@@ -17,7 +17,9 @@ Commands:
     gw <branch>         Switch to worktree for <branch>, create if doesn't exist
     gw -b <branch>      Create new branch and worktree
     gw -d [branch]      Delete worktree (exact match required)
+    gw -d --skip-delete-scripts [branch]  Delete worktree, skipping delete_scripts from .gwconfig
     gw -c               Clean up worktrees that are up to date with tracking branches
+    gw -c --skip-delete-scripts           Clean up worktrees, skipping delete_scripts
     gw --list          List all worktrees
     gw --help          Show this help
 
@@ -690,6 +692,12 @@ run_config_scripts() {
 run_delete_scripts() {
     local worktree_path="$1"
     local worktree_root="$2"
+    local skip_scripts="${3:-false}"
+
+    # Skip if requested
+    if [[ "$skip_scripts" == "true" ]]; then
+        return 0
+    fi
 
     # Get scripts to run from config
     local -a scripts=()
@@ -726,6 +734,8 @@ run_delete_scripts() {
 
 # Clean up worktrees that are up to date with their tracking branches
 clean_worktrees() {
+    local skip_scripts="${1:-false}"
+
     # Need to be in a git repo
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
         echo "Error: Not in a git repository. Cannot clean worktrees." >&2
@@ -813,7 +823,7 @@ clean_worktrees() {
     local -a worktrees_failed=()
 
     for worktree_path in "${worktrees_to_delete[@]}"; do
-        if run_delete_scripts "$worktree_path" "$worktree_root"; then
+        if run_delete_scripts "$worktree_path" "$worktree_root" "$skip_scripts"; then
             worktrees_safe_to_delete+=("$worktree_path")
         else
             worktrees_failed+=("$worktree_path")
@@ -857,7 +867,8 @@ clean_worktrees() {
 # Delete a worktree
 delete_worktree() {
     local branch_name="$1"
-    
+    local skip_scripts="${2:-false}"
+
     # Need to be in a git repo
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
         echo "Error: Not in a git repository. Cannot delete worktree." >&2
@@ -889,7 +900,7 @@ delete_worktree() {
         fi
 
         # Run pre-delete scripts if configured
-        if ! run_delete_scripts "$current_worktree" "$worktree_root"; then
+        if ! run_delete_scripts "$current_worktree" "$worktree_root" "$skip_scripts"; then
             echo "Error: Cannot delete worktree due to script failure." >&2
             return 1
         fi
@@ -924,7 +935,7 @@ delete_worktree() {
     fi
 
     # Run pre-delete scripts if configured
-    if ! run_delete_scripts "$worktree_path" "$worktree_root"; then
+    if ! run_delete_scripts "$worktree_path" "$worktree_root" "$skip_scripts"; then
         echo "Error: Cannot delete worktree due to script failure." >&2
         return 1
     fi
@@ -962,10 +973,30 @@ main() {
             switch_or_create_worktree "$2" "true"
             ;;
         -d)
-            delete_worktree "${2:-}"
+            local skip_scripts="false"
+            local branch_arg=""
+            shift
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --skip-delete-scripts)
+                        skip_scripts="true"
+                        shift
+                        ;;
+                    *)
+                        branch_arg="$1"
+                        shift
+                        ;;
+                esac
+            done
+            delete_worktree "$branch_arg" "$skip_scripts"
             ;;
         -c)
-            clean_worktrees
+            local skip_scripts="false"
+            shift
+            if [[ "${1:-}" == "--skip-delete-scripts" ]]; then
+                skip_scripts="true"
+            fi
+            clean_worktrees "$skip_scripts"
             ;;
         "")
             list_worktrees
