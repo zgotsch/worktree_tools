@@ -351,9 +351,16 @@ switch_or_create_worktree() {
             echo "$worktree_path"
             return 0
         fi
-        
-        echo "Creating new branch '$input' and worktree at $worktree_path" >&2
-        git worktree add -b "$input" "$worktree_path" >&2
+
+        # Get the primary branch and fetch latest from remote
+        local primary_branch
+        primary_branch=$(get_primary_branch)
+
+        echo "Fetching latest origin/$primary_branch..." >&2
+        git fetch origin "$primary_branch" >&2
+
+        echo "Creating new branch '$input' from origin/$primary_branch at $worktree_path" >&2
+        git worktree add -b "$input" "$worktree_path" "origin/$primary_branch" >&2
 
         # Create symlinks for configured files
         create_config_links "$worktree_path" "$worktree_root"
