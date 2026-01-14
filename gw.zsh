@@ -621,8 +621,14 @@ create_config_links() {
             fi
 
             # Create relative symlink from target directory to source file
-            # Since worktrees are siblings, the path is usually ../$primary_branch/filename
-            local relative_source="../$primary_branch/$file"
+            # We need to go up one level for each subdirectory in $file, plus one more to reach the worktree root
+            local dir_depth
+            dir_depth=$(echo "$file" | tr -cd '/' | wc -c)
+            local up_path=".."
+            for ((i = 0; i < dir_depth; i++)); do
+                up_path="../$up_path"
+            done
+            local relative_source="$up_path/$primary_branch/$file"
 
             # Create the symlink
             if ln -sf "$relative_source" "$target_file" 2>/dev/null; then
