@@ -715,6 +715,18 @@ run_delete_scripts() {
     local worktree_path="$1"
     local worktree_root="$2"
 
+    # Run user-level pre-delete hook if it exists
+    local user_hook="$HOME/.config/gw/pre-delete.sh"
+    if [[ -x "$user_hook" ]]; then
+        echo "Running user pre-delete hook..." >&2
+        (cd "$worktree_path" && "$user_hook" >&2)
+        local hook_status=$?
+        if [[ $hook_status -ne 0 ]]; then
+            echo "User pre-delete hook failed (exit status: $hook_status)" >&2
+            return 1
+        fi
+    fi
+
     # Get scripts to run from config
     local -a scripts=()
     while IFS= read -r script; do
