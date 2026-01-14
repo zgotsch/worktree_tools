@@ -16,7 +16,7 @@ Usage: gw [options] <branch-name>
 Commands:
     gw <branch>         Switch to worktree for <branch>, create if doesn't exist
     gw -b <branch>      Create new branch and worktree
-    gw -d [branch]      Delete worktree (exact match required)
+    gw -d [branch] [--force]  Delete worktree (exact match required)
     gw -c               Clean up worktrees that are up to date with tracking branches
     gw --list          List all worktrees
     gw --help          Show this help
@@ -26,6 +26,7 @@ Examples:
     gw feature/new-api                # Switch to or create feature__new-api/ worktree
     gw -b zgotsch/experimental        # Create new branch and zgotsch__experimental/ worktree
     gw -d feature/old-api            # Delete feature__old-api/ worktree
+    gw -d feature/old-api --force    # Force delete even with untracked files
     gw -d                            # Delete current worktree (switches to primary first)
     gw -c                            # Clean up finished feature branches
 
@@ -909,6 +910,7 @@ clean_worktrees() {
 # Delete a worktree
 delete_worktree() {
     local branch_name="$1"
+    local force="${2:-false}"
 
     # Need to be in a git repo
     if ! git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -988,8 +990,12 @@ delete_worktree() {
     # Note: This will fail if there are untracked files in the worktree, which is the desired
     # safety behavior to prevent accidental data loss. Use --force flag manually if needed.
     echo "Deleting worktree for branch '$branch_name' at $worktree_path" >&2
-    git worktree remove "$worktree_path"
-    
+    if [[ "$force" == "true" ]]; then
+        git worktree remove --force "$worktree_path"
+    else
+        git worktree remove "$worktree_path"
+    fi
+
     if [[ $? -eq 0 ]]; then
         echo "Successfully deleted worktree for branch '$branch_name'" >&2
     else
@@ -1017,7 +1023,22 @@ main() {
             switch_or_create_worktree "$2" "true"
             ;;
         -d)
-            delete_worktree "${2:-}"
+            # Check for --force flag
+            local force_flag="false"
+            local branch_arg=""
+            shift
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --force|-f)
+                        force_flag="true"
+                        ;;
+                    *)
+                        branch_arg="$1"
+                        ;;
+                esac
+                shift
+            done
+            delete_worktree "$branch_arg" "$force_flag"
             ;;
         -c)
             clean_worktrees
